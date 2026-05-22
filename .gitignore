@@ -1,0 +1,35 @@
+# System Files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Logs
+*.log
+logs/
+fluent-bit/log/
+
+# Persistent data folders (Loki, Grafana, etc.)
+data/
+loki-data/
+grafana-data/
+/tmp/
+loki/chunks/
+loki/compactor/
