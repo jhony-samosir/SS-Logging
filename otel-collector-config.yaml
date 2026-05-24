@@ -13,6 +13,10 @@ receivers:
           scrape_interval: 15s
           static_configs:
             - targets: ['catalog-service:8081']
+        - job_name: 'cart-service'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['cart-service:8082']
 
 exporters:
   otlp/tempo:
@@ -23,6 +27,12 @@ exporters:
   debug:
     verbosity: normal
 
+  # Forward logs to Loki via OTLP (if services send logs via OTel SDK)
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true
+
 processors:
   batch:
     timeout: 5s
@@ -31,6 +41,13 @@ processors:
   memory_limiter:
     check_interval: 1s
     limit_mib: 256
+
+  # Adds resource attributes to all telemetry
+  resource:
+    attributes:
+      - action: insert
+        key: service.namespace
+        value: samstore
 
 extensions:
   health_check:
@@ -43,9 +60,13 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, resource, batch]
       exporters: [otlp/tempo, debug]
     metrics:
       receivers: [otlp, prometheus]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, resource, batch]
       exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp/loki, debug]
