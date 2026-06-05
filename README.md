@@ -1,109 +1,133 @@
-﻿# SS-Logging
+# SS-Logging
 
 ## Overview
 
-SS-Logging is the centralized observability and telemetry infrastructure project for the SamStore microservices ecosystem. It provides the necessary configurations and pipeline setups to aggregate logs, collect metric gauges, and visualize distributed traces across all application microservices.
+`SS-Logging` adalah proyek infrastruktur yang menyediakan tumpukan (*stack*) Telemetri dan Observabilitas Terpusat untuk seluruh ekosistem microservices SamStore.
 
-Rather than relying on direct service-to-service diagnostic endpoints, it sets up robust collector pipelines using OpenTelemetry, Fluent Bit, Grafana, Loki, and Tempo to establish comprehensive tracing and debugging dashboards.
+Menggunakan pendekatan terdepan dari **OpenTelemetry**, tumpukan ini membebaskan microservices dari keterikatan dengan vendor telemetri spesifik. Ini memfasilitasi agregasi **Logs (Log)**, **Metrics (Metrik)**, dan **Traces (Jejak Terdistribusi)** dalam satu kesatuan dashboard korelatif menggunakan **Grafana**, **Loki**, dan **Tempo**.
 
-## Features
-
-- **Centralized Log Processing**: Employs Fluent Bit to ingest, parse, and forward containerized stdout/stderr logs directly into Loki.
-- **Distributed Tracing**: Integrates Tempo as a trace storage engine to query downstream microservice transaction spans.
-- **OpenTelemetry Collector Pipeline**: Sets up a unified receiver forwarding traces to Tempo, logs to Loki, and debugging metrics outputs.
-- **Correlated Dashboards**: Includes pre-configured Grafana dashboards connecting trace spans to log statements automatically.
+---
 
 ## Tech Stack
 
-| Category       | Technology              |
-| -------------- | ----------------------- |
-| Log Forwarding | Fluent Bit              |
-| Log Storage    | Grafana Loki            |
-| Trace Storage  | Grafana Tempo           |
-| Ingestion      | OpenTelemetry Collector |
-| Visualization  | Grafana                 |
+| Kategori            | Teknologi                             |
+| ------------------- | ------------------------------------- |
+| Data Ingestion      | OpenTelemetry Collector               |
+| Log Forwarding      | Fluent Bit                            |
+| Log Storage         | Grafana Loki                          |
+| Trace Storage       | Grafana Tempo                         |
+| Data Visualization  | Grafana                               |
 
-## Project Structure
+---
+
+## Arsitektur Aliran Observabilitas (Observability Pipeline)
+
+```mermaid
+graph TD
+    subgraph Microservices [SamStore Microservices]
+        DotNet[".NET Services<br/>(Gateway, Auth, Profile)"]
+        Go["Go Service<br/>(Catalog)"]
+        Node["Node.js Service<br/>(Cart)"]
+        Java["Java Service<br/>(Order)"]
+    end
+
+    subgraph LoggingStack [SS-Logging Stack]
+        FluentBit[Fluent Bit]
+        OTelCol[OpenTelemetry Collector]
+        Loki[(Grafana Loki)]
+        Tempo[(Grafana Tempo)]
+        Grafana[Grafana Dashboards]
+    end
+
+    %% Logs Flow
+    DotNet -- "stdout (JSON)" --> FluentBit
+    Go -- "stdout (JSON)" --> FluentBit
+    Node -- "stdout (JSON)" --> FluentBit
+    Java -- "stdout (JSON)" --> FluentBit
+    FluentBit -- "Push Logs" --> Loki
+
+    %% Traces Flow
+    DotNet -- "OTLP gRPC (Trace/Metrics)" --> OTelCol
+    Go -- "OTLP gRPC (Trace/Metrics)" --> OTelCol
+    Node -- "OTLP gRPC (Trace/Metrics)" --> OTelCol
+    Java -- "OTLP gRPC (Trace/Metrics)" --> OTelCol
+    
+    OTelCol -- "Push Traces" --> Tempo
+    OTelCol -- "Push Logs via OTLP (optional)" --> Loki
+
+    %% Visualization
+    Grafana -. "Query Logs" .-> Loki
+    Grafana -. "Query Traces" .-> Tempo
+```
+
+---
+
+## Struktur Direktori
 
 ```text
 SS-Logging/
 ├── grafana/
-│   ├── dashboards/            # Pre-configured dashboard json setups (logs & traces)
-│   └── datasources/           # Provisioned datasource properties linking Loki/Tempo
-├── fluent-bit.conf            # Core Fluent Bit routing configuration
-├── loki-config.yaml           # Grafana Loki index and retention parameters
-├── otel-collector-config.yaml # OpenTelemetry trace/log collector routing
-├── parsers.conf               # Log parser formatting rules (e.g. docker_json)
-└── tempo-config.yaml          # Tempo traces memory and storage options
+│   ├── dashboards/            # Konfigurasi dashboard JSON bawaan (Pre-configured Grafana dashboards)
+│   └── datasources/           # Auto-provisioning data source Loki & Tempo ke dalam Grafana
+├── fluent-bit.conf            # Aturan perutean dan penangkapan input/output Fluent Bit
+├── loki-config.yaml           # Parameter retensi dan indeks database log Loki
+├── otel-collector-config.yaml # Pipeline penangkapan Traces/Metrics/Logs OTLP gRPC/HTTP
+├── parsers.conf               # Aturan ekstraksi dan format log (docker_json)
+└── tempo-config.yaml          # Aturan penyimpanan jejak Tempo
 ```
 
-## Requirements
+---
 
-- Docker and Docker Compose
-- OpenTelemetry-supported microservices
+## Port dan Konfigurasi Jaringan
 
-## Installation
+Untuk menghubungkan servis lokal maupun via Docker ke SS-Logging, berikut adalah port yang dibuka:
 
+| Komponen                   | Protokol | Port    | Penggunaan Utama                             |
+| -------------------------- | -------- | ------- | -------------------------------------------- |
+| **OpenTelemetry Collector**| OTLP gRPC| `4317`  | Digunakan oleh SDK layanan untuk kirim Trace |
+| **OpenTelemetry Collector**| OTLP HTTP| `4318`  | Alternatif kirim Trace jika gRPC diblokir    |
+| **Fluent Bit**             | Forward  | `24224` | Menangkap stream console output Docker       |
+| **Grafana**                | HTTP/UI  | `3001`  | Dashboard Web User Interface                 |
+| **Grafana Tempo**          | HTTP     | `3200`  | Tempo HTTP API / Search Trace                |
+| **Grafana Loki**           | HTTP     | `3100`  | Loki Log Search API                          |
+
+---
+
+## Korelasi Jejak dan Log (Trace-to-Log Correlation)
+
+Keuntungan utama tumpukan ini adalah kemampuannya menautkan jejak API melintasi banyak microservice.
+Ketika Anda melihat *Trace ID* di dasbor jejak Tempo, Grafana dapat memfilter seketika semua file Log di Loki (dari aplikasi manapun) yang terkait dengan ID tersebut.
+
+**Syarat Implementasi di Microservice:**
+Agar korelasi berfungsi, setiap Microservice **wajib** menyisipkan atribut `traceId` atau `trace_id` dalam setiap baris log JSON yang mereka cetak ke `stdout`. OpenTelemetry SDK pada setiap bahasa pemrograman umumnya sudah menyediakan pustaka integrasi (MDC/Logger hook) untuk menginjeksi traceId ini secara otomatis.
+
+---
+
+## Menjalankan Lingkungan Secara Lokal
+
+Tumpukan infrastruktur ini dirancang untuk dijalankan bersamaan dengan microservices lain lewat file konfigurasi `docker-compose.yml` utama (berada di folder `SS-APIGateway`). Namun, Anda dapat menyalakannya secara independen asalkan menggunakan jaringan Docker yang sesuai.
+
+Langkah normal (lewat direktori APIGateway):
 ```bash
-git clone <repository>
-cd SamStore/SS-Logging
+cd SamStore/SS-APIGateway
+docker-compose up -d fluent-bit loki tempo otel-collector grafana
 ```
 
-## Configuration
+Setelah aplikasi berjalan, buka browser dan navigasi ke:
+**http://localhost:3001**
 
-The configuration parameters are managed inside the YAML properties. Key communication ports:
+- **Username**: `admin`
+- **Password**: `admin`
 
-- **Fluent Bit Ingestion**: `24224` (Forward Protocol)
-- **OTel Collector Receivers**: `4317` (OTLP gRPC), `4318` (OTLP HTTP)
-- **Loki Endpoint**: `3100` (HTTP)
-- **Tempo Endpoint**: `3200` (HTTP)
-- **Grafana Dashboard Port**: `3000` (Web UI)
-
-## Running Locally
-
-To orchestrate the observability stack locally, mount the configuration files inside a Docker Compose network configuration:
-
-```bash
-# Recommended deployment via Docker Compose
-docker compose up -d
-```
-
-## Build
-
-Not identified from source code. (Configuration files, no compiled source).
-
-## Testing
-
-Not identified from source code.
-
-## API Documentation
-
-Not identified from source code.
-
-## Database
-
-Not identified from source code (Utilizes file system storage `/tmp/` directories for development indexing by Loki and Tempo).
-
-## Deployment
-
-- **Docker**: Component applications (OTel, Fluent Bit, Loki, Tempo, Grafana) run as standard Docker containers.
-- **Docker Compose**: Orchestration configurations link memory boundaries on a mutual docker virtual network.
-
-## Architecture Notes
-
-- **Telemetry Pipeline Pattern**: Microservice -> OpenTelemetry SDK -> OTel Collector -> Tempo (Traces) & Loki (Logs via Fluent Bit) -> Grafana.
-- **Correlation Design**: Ensures trace-to-log navigation links using shared JSON log parameters (`traceId` / `trace_id`).
+---
 
 ## Known Issues
 
-- Storage paths default to `/tmp/...`. Production deployments must mount persistent block volumes.
+- Dalam konfigurasi default proyek ini, penyimpanan log dan traces menggunakan path sementara (`/tmp/` dalam container) yang bersifat sekilas (*ephemeral*). Penyimpanan akan hilang apabila kontainer dihancurkan.
+- Grafana Prometheus metrics belum dikonfigurasi penuh untuk visualisasi beban CPU/Memory server (walau collector disiapkan untuk menangkapnya).
 
 ## Future Improvements
 
-- Integrate Prometheus metric visualization dashboards.
-
-## License
-
-```text
-License information not specified.
-```
+- Mengganti path penyimpanan lokal sekilas menjadi Docker Persistent Volumes untuk ketahanan data.
+- Menambahkan Prometheus ke dalam docker-compose dan Grafana Datasource untuk memonitor dasbor metrik infrastruktur secara real-time.
+- Menerapkan AlertManager untuk membunyikan alarm ke Slack/Email jika laju kesalahan HTTP 5xx pada gateway melonjak.
